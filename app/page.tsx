@@ -24,14 +24,14 @@ export default function HomePage() {
 
     stockQuantity: 500,
     productCost: 7.5,
-    sellingPrice: 78.5,
-    weightKg: 1,
+    sellingPrice: 95.72,
+    weightKg: 0.55,
 
-    leadCost: 5,
-    confirmationRate: 60,
+    leadCost: 12,
+    confirmationRate: 65,
     deliveryRate: 60,
     refundRate: 0,
-    upsellRate: 5,
+    upsellRate: 0,
 
     influencerCount: 0,
     influencerCostPerVideo: 100,
@@ -182,7 +182,7 @@ export default function HomePage() {
               <Field label="Stock Quantity"><NumberInput value={inputs.stockQuantity} onChange={(v) => update("stockQuantity", v)} suffix="units" /></Field>
               <Field label="Package Weight"><NumberInput value={inputs.weightKg} onChange={(v) => update("weightKg", v)} suffix="kg" /></Field>
               <Field label="Product Cost" hint="Per unit"><NumberInput value={inputs.productCost} onChange={(v) => update("productCost", v)} prefix="$" /></Field>
-              <Field label="Selling Price" hint="Customer pays"><NumberInput value={inputs.sellingPrice} onChange={(v) => update("sellingPrice", v)} prefix="$" /></Field>
+              <Field label="Price or AOV" hint="Customer pays"><NumberInput value={inputs.sellingPrice} onChange={(v) => update("sellingPrice", v)} prefix="$" /></Field>
             </Section>
 
             <Section title="Marketing" icon={<TrendingUp className="h-4 w-4 text-brand-600" />}>
