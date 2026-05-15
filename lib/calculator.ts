@@ -17,12 +17,17 @@ export interface CalculatorInputs {
   sellingPrice: number;
   weightKg: number;
 
+  // AOV / leads mode
+  useLeadsMode: boolean;        // drive calc from leads count instead of stock
+  leadsInput: number;           // how many leads you have/expect
+  aov: number;                  // average order value (0 = use sellingPrice)
+
   // Marketing
   leadCost: number;
-  confirmationRate: number;   // 0-100
-  deliveryRate: number;       // 0-100  (% kept)
-  refundRate: number;         // 0-100
-  upsellRate: number;         // 0-100
+  confirmationRate: number;     // 0-100
+  deliveryRate: number;         // 0-100  (% kept)
+  refundRate: number;           // 0-100
+  upsellRate: number;           // 0-100
 
   // Influencer
   influencerCount: number;
@@ -35,12 +40,27 @@ export interface CalculatorInputs {
   internetCost: number;
   electricityCost: number;
   otherCosts: number;
-  taxRate: number;            // 0-100
+  taxRate: number;              // 0-100
 
   // Video review refund
   enableVideoRefund: boolean;
-  videoAcceptance: number;    // 0-100
-  videoRefundPct: number;     // 0-100
+  videoAcceptance: number;      // 0-100
+  videoRefundPct: number;       // 0-100
+
+  // Supply chain
+  productionDays: number;
+  shippingDays: number;
+  safetyStockDays: number;
+}
+
+export interface SupplyChainResult {
+  totalLeadTime: number;          // production + shipping
+  reorderPoint: number;           // units sold per day × lead time
+  dailySalesRate: number;         // delivered units per day (based on stock)
+  daysUntilStockout: number;      // days current stock lasts
+  reorderInDays: number;          // days from today to place next order
+  reorderUrgency: "ok" | "soon" | "urgent" | "overdue";
+  reorderDate: string;            // human readable date string
 }
 
 export interface CalculatorResults {
@@ -63,6 +83,9 @@ export interface CalculatorResults {
   deliveredOrders: number;
   returnedOrders: number;
   upsellOrders: number;
+
+  // Effective price used
+  effectivePrice: number;
 
   // Revenue
   grossRevenue: number;
@@ -109,8 +132,39 @@ export interface CalculatorResults {
   localCurrency: string;
   localProfit: number;
 
+  // Supply chain
+  supplyChain: SupplyChainResult;
+
   // Validation
   errors: string[];
+}
+
+function computeSupplyChain(input: CalculatorInputs, deliveredOrders: number): SupplyChainResult {
+  const totalLeadTime = input.productionDays + input.shippingDays;
+  // assume stock quantity represents ~30 days of inventory as baseline
+  const daysUntilStockout = deliveredOrders > 0 ? (input.stockQuantity / deliveredOrders) * 30 : 999;
+  const dailySalesRate = deliveredOrders / 30;
+  const reorderPoint = dailySalesRate * (totalLeadTime + input.safetyStockDays);
+  const reorderInDays = Math.max(0, daysUntilStockout - totalLeadTime - input.safetyStockDays);
+
+  let reorderUrgency: SupplyChainResult["reorderUrgency"] = "ok";
+  if (reorderInDays <= 0) reorderUrgency = "overdue";
+  else if (reorderInDays <= 7) reorderUrgency = "urgent";
+  else if (reorderInDays <= 14) reorderUrgency = "soon";
+
+  const reorderDate = new Date(Date.now() + reorderInDays * 86400000).toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric",
+  });
+
+  return {
+    totalLeadTime,
+    reorderPoint: Math.ceil(reorderPoint),
+    dailySalesRate: Math.round(dailySalesRate * 10) / 10,
+    daysUntilStockout: Math.round(daysUntilStockout),
+    reorderInDays: Math.round(reorderInDays),
+    reorderUrgency,
+    reorderDate,
+  };
 }
 
 export function calculate(input: CalculatorInputs): CalculatorResults {
@@ -128,10 +182,13 @@ export function calculate(input: CalculatorInputs): CalculatorResults {
   const taxRate = input.taxRate / 100;
   const successRatio = confRate * delivRate;
 
+  // Effective price: AOV overrides sellingPrice when set
+  const effectivePrice = (input.aov > 0 ? input.aov : input.sellingPrice);
+
   if (successRatio <= 0) {
     errors.push("Confirmation rate × delivery rate must be greater than 0.");
   }
-  if (input.sellingPrice <= input.productCost) {
+  if (effectivePrice <= input.productCost) {
     errors.push("Selling price is at or below product cost — review your numbers.");
   }
 
@@ -141,26 +198,35 @@ export function calculate(input: CalculatorInputs): CalculatorResults {
   const deliveredShip = ship.delivered + extraWeightFee;
   const returnedShip = ship.returned + (ship.returned > 0 ? extraWeightFee : 0);
 
-  // Volume math
-  const leadsNeeded = successRatio > 0 ? input.stockQuantity / successRatio : 0;
+  // Volume math — leads mode drives from leadsInput, stock mode from stockQuantity
+  let leadsNeeded: number;
+  let deliveredOrders: number;
+
+  if (input.useLeadsMode && input.leadsInput > 0 && successRatio > 0) {
+    leadsNeeded = input.leadsInput;
+    deliveredOrders = leadsNeeded * successRatio;
+  } else {
+    leadsNeeded = successRatio > 0 ? input.stockQuantity / successRatio : 0;
+    deliveredOrders = input.stockQuantity;
+  }
+
   const confirmedOrders = leadsNeeded * confRate;
   const shippedOrders = confirmedOrders;
-  const deliveredOrders = input.stockQuantity;
   const returnedOrders = Math.max(0, shippedOrders - deliveredOrders);
   const upsellOrders = deliveredOrders * upsellRate;
 
   // Revenue
-  const grossRevenue = deliveredOrders * input.sellingPrice;
-  const upsellRevenue = upsellOrders * input.sellingPrice;
+  const grossRevenue = deliveredOrders * effectivePrice;
+  const upsellRevenue = upsellOrders * effectivePrice;
   const totalGross = grossRevenue + upsellRevenue;
   const refunds = totalGross * refundRate;
   const videoRefundAmount = input.enableVideoRefund
-    ? deliveredOrders * input.sellingPrice * (input.videoAcceptance / 100) * (input.videoRefundPct / 100)
+    ? deliveredOrders * effectivePrice * (input.videoAcceptance / 100) * (input.videoRefundPct / 100)
     : 0;
   const codFees = totalGross * (plan.codFeesPct / 100);
   const netRevenue = totalGross - refunds - videoRefundAmount - codFees;
 
-  // COGS (delivered + upsell units)
+  // COGS
   const cogs = (deliveredOrders + upsellOrders) * input.productCost;
 
   // Shipping
@@ -168,7 +234,7 @@ export function calculate(input: CalculatorInputs): CalculatorResults {
   const shippingReturned = returnedOrders * returnedShip;
   const shippingTotal = shippingDelivered + shippingReturned;
 
-  // Fulfillment ($1/order on Free Return Plan, $0 on Free Plan)
+  // Fulfillment
   const fulfillmentTotal = shippedOrders * plan.fulfillmentPerOrder;
 
   // Call center
@@ -203,11 +269,13 @@ export function calculate(input: CalculatorInputs): CalculatorResults {
   const margin = totalGross > 0 ? (netProfit / totalGross) * 100 : 0;
   const profitPerUnit = deliveredOrders > 0 ? netProfit / deliveredOrders : 0;
 
-  // Break-even leads (how many leads to cover monthly operating + tax)
   const profitPerLead = leadsNeeded > 0
     ? (netRevenue - directCosts) / leadsNeeded
     : 0;
   const breakEvenLeads = profitPerLead > 0 ? operatingTotal / profitPerLead : 0;
+
+  // Supply chain
+  const supplyChain = computeSupplyChain(input, deliveredOrders);
 
   return {
     planName: plan.name,
@@ -227,6 +295,8 @@ export function calculate(input: CalculatorInputs): CalculatorResults {
     deliveredOrders,
     returnedOrders,
     upsellOrders,
+
+    effectivePrice,
 
     grossRevenue,
     upsellRevenue,
@@ -267,11 +337,12 @@ export function calculate(input: CalculatorInputs): CalculatorResults {
     localCurrency: country.currency,
     localProfit: netProfit * country.usdRate,
 
+    supplyChain,
+
     errors,
   };
 }
 
-// Compare both plans for the same scenario
 export function comparePlans(input: CalculatorInputs): {
   free: CalculatorResults;
   freeReturn: CalculatorResults;

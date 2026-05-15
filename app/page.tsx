@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import {
   Package, DollarSign, TrendingUp, Phone, Users, Building2,
   Video, Globe, Truck, Calculator, Sparkles, BarChart3,
-  AlertCircle, CheckCircle2, ArrowRight, Info,
+  AlertCircle, CheckCircle2, ArrowRight, Info, Clock, ShoppingCart,
 } from "lucide-react";
 import { calculate, comparePlans, type CalculatorInputs } from "@/lib/calculator";
 import { COUNTRIES, type CountryCode, type PlanKey, type ProductType } from "@/lib/tariff";
@@ -27,6 +27,11 @@ export default function HomePage() {
     sellingPrice: 95.72,
     weightKg: 0.55,
 
+    // AOV / leads mode
+    useLeadsMode: false,
+    leadsInput: 1000,
+    aov: 0,
+
     leadCost: 12,
     confirmationRate: 65,
     deliveryRate: 60,
@@ -47,6 +52,11 @@ export default function HomePage() {
     enableVideoRefund: false,
     videoAcceptance: 30,
     videoRefundPct: 35,
+
+    // Supply chain
+    productionDays: 25,
+    shippingDays: 25,
+    safetyStockDays: 10,
   });
 
   const update = <K extends keyof CalculatorInputs>(key: K, value: CalculatorInputs[K]) =>
@@ -62,6 +72,14 @@ export default function HomePage() {
 
   const profitable = result.netProfit >= 0;
   const planSavings = Math.abs(comparison.free.netProfit - comparison.freeReturn.netProfit);
+  const sc = result.supplyChain;
+
+  const urgencyConfig = {
+    ok: { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700", badge: "bg-emerald-600", label: "On Track" },
+    soon: { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700", badge: "bg-amber-500", label: "Order Soon" },
+    urgent: { bg: "bg-orange-50", border: "border-orange-200", text: "text-orange-700", badge: "bg-orange-600", label: "Order Now" },
+    overdue: { bg: "bg-rose-50", border: "border-rose-200", text: "text-rose-700", badge: "bg-rose-600", label: "OVERDUE" },
+  }[sc.reorderUrgency];
 
   return (
     <main className="min-h-screen pb-16">
@@ -178,11 +196,40 @@ export default function HomePage() {
               </Field>
             </Section>
 
+            {/* Inventory & Pricing */}
             <Section title="Inventory & Pricing" icon={<Package className="h-4 w-4 text-brand-600" />}>
               <Field label="Stock Quantity"><NumberInput value={inputs.stockQuantity} onChange={(v) => update("stockQuantity", v)} suffix="units" /></Field>
               <Field label="Package Weight"><NumberInput value={inputs.weightKg} onChange={(v) => update("weightKg", v)} suffix="kg" /></Field>
               <Field label="Product Cost" hint="Per unit"><NumberInput value={inputs.productCost} onChange={(v) => update("productCost", v)} prefix="$" /></Field>
-              <Field label="Price or AOV" hint="Customer pays"><NumberInput value={inputs.sellingPrice} onChange={(v) => update("sellingPrice", v)} prefix="$" /></Field>
+              <Field label="Selling Price" hint="Single unit price"><NumberInput value={inputs.sellingPrice} onChange={(v) => update("sellingPrice", v)} prefix="$" /></Field>
+            </Section>
+
+            {/* AOV & Leads Mode */}
+            <Section title="AOV & Leads Mode" icon={<ShoppingCart className="h-4 w-4 text-brand-600" />}>
+              <div className="sm:col-span-2">
+                <Field label="Calculate from leads instead of stock?">
+                  <div className="flex items-center gap-3 pt-1">
+                    <Toggle checked={inputs.useLeadsMode} onChange={(v) => update("useLeadsMode", v)} />
+                    <span className="text-sm text-slate-600">{inputs.useLeadsMode ? "Leads-driven" : "Stock-driven"}</span>
+                  </div>
+                </Field>
+              </div>
+              {inputs.useLeadsMode && (
+                <div className="sm:col-span-2">
+                  <Field label="Number of Leads" hint="How many leads you have/expect">
+                    <NumberInput value={inputs.leadsInput} onChange={(v) => update("leadsInput", v)} suffix="leads" />
+                  </Field>
+                </div>
+              )}
+              <div className="sm:col-span-2">
+                <Field label="AOV (Average Order Value)" hint="Overrides selling price if set. Set to 0 to use selling price.">
+                  <NumberInput value={inputs.aov} onChange={(v) => update("aov", v)} prefix="$" />
+                </Field>
+              </div>
+              <div className="sm:col-span-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+                Effective price used: <strong className="text-slate-700">{fmtUSD(result.effectivePrice)}</strong>
+                {inputs.aov > 0 ? " (from AOV)" : " (from selling price)"}
+              </div>
             </Section>
 
             <Section title="Marketing" icon={<TrendingUp className="h-4 w-4 text-brand-600" />}>
@@ -191,6 +238,20 @@ export default function HomePage() {
               <Field label="Delivery Success Rate" hint="% kept by customer"><NumberInput value={inputs.deliveryRate} onChange={(v) => update("deliveryRate", v)} suffix="%" /></Field>
               <Field label="Refund Rate"><NumberInput value={inputs.refundRate} onChange={(v) => update("refundRate", v)} suffix="%" /></Field>
               <Field label="Upsell Rate" hint="% buying 2+ units"><NumberInput value={inputs.upsellRate} onChange={(v) => update("upsellRate", v)} suffix="%" /></Field>
+            </Section>
+
+            {/* Supply Chain */}
+            <Section title="Supply Chain" icon={<Clock className="h-4 w-4 text-brand-600" />}>
+              <div className="sm:col-span-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-500 leading-relaxed">
+                Total lead time = production + shipping. Reorder point = daily sales × (lead time + safety buffer).
+              </div>
+              <Field label="Production Days" hint="Time to make in China"><NumberInput value={inputs.productionDays} onChange={(v) => update("productionDays", v)} suffix="days" /></Field>
+              <Field label="Shipping Days" hint="Transit to warehouse"><NumberInput value={inputs.shippingDays} onChange={(v) => update("shippingDays", v)} suffix="days" /></Field>
+              <div className="sm:col-span-2">
+                <Field label="Safety Buffer" hint="Extra days stock to hold before reordering">
+                  <NumberInput value={inputs.safetyStockDays} onChange={(v) => update("safetyStockDays", v)} suffix="days" />
+                </Field>
+              </div>
             </Section>
 
             <Section title="Influencer Marketing" icon={<Video className="h-4 w-4 text-brand-600" />}>
@@ -230,7 +291,7 @@ export default function HomePage() {
 
           {/* RIGHT: Results */}
           <div className="space-y-4">
-            {/* Errors / warnings */}
+            {/* Errors */}
             {result.errors.length > 0 && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                 <div className="flex items-start gap-2">
@@ -255,6 +316,79 @@ export default function HomePage() {
               <StatCard label="ROI" value={`${fmt(result.roi, 1)}%`} tone={result.roi >= 0 ? "brand" : "negative"} />
               <StatCard label="Margin" value={`${fmt(result.margin, 1)}%`} tone={result.margin >= 0 ? "neutral" : "negative"} />
               <StatCard label="Per Unit Profit" value={fmtUSD(result.profitPerUnit)} tone={result.profitPerUnit >= 0 ? "neutral" : "negative"} />
+            </div>
+
+            {/* Supply Chain Tracker */}
+            <div className={`rounded-2xl border p-5 shadow-sm ${urgencyConfig.bg} ${urgencyConfig.border}`}>
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className={`flex items-center gap-2 text-sm font-semibold ${urgencyConfig.text}`}>
+                  <Clock className="h-4 w-4" />
+                  Supply Chain Tracker
+                </h3>
+                <span className={`inline-flex items-center gap-1 rounded-full ${urgencyConfig.badge} px-2.5 py-0.5 text-[10px] font-bold uppercase text-white`}>
+                  {urgencyConfig.label}
+                </span>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
+                <ScStat label="Total Lead Time" value={`${sc.totalLeadTime} days`} sub={`${inputs.productionDays}d prod + ${inputs.shippingDays}d ship`} />
+                <ScStat label="Daily Sales Rate" value={`${sc.dailySalesRate} units/day`} sub="based on current stock" />
+                <ScStat label="Stock Lasts" value={`${sc.daysUntilStockout} days`} sub="at current sales pace" />
+                <ScStat label="Reorder Point" value={`${fmtInt(sc.reorderPoint)} units`} sub="min stock to trigger order" />
+              </div>
+
+              <div className={`rounded-xl border ${urgencyConfig.border} bg-white/60 p-4`}>
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <div className={`text-xs font-semibold uppercase tracking-wide ${urgencyConfig.text}`}>
+                      Place Next Order In
+                    </div>
+                    <div className={`mt-0.5 text-2xl font-bold tabular-nums ${urgencyConfig.text}`}>
+                      {sc.reorderInDays <= 0 ? "Now!" : `${sc.reorderInDays} days`}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {sc.reorderInDays <= 0
+                        ? "Order already overdue — stock may run out before new batch arrives"
+                        : `Order by ${sc.reorderDate} to avoid stockout`}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[11px] text-slate-500">Lead time breakdown</div>
+                    <div className="text-xs text-slate-700 font-medium mt-1">
+                      {inputs.productionDays}d production + {inputs.shippingDays}d shipping + {inputs.safetyStockDays}d buffer
+                    </div>
+                    <div className="text-xs text-slate-500">= {sc.totalLeadTime + inputs.safetyStockDays} days total window</div>
+                  </div>
+                </div>
+
+                {/* Timeline bar */}
+                <div className="mt-4">
+                  <div className="flex text-[10px] text-slate-500 justify-between mb-1">
+                    <span>Today</span>
+                    <span>Order deadline</span>
+                    <span>Stockout risk</span>
+                  </div>
+                  <div className="relative h-3 rounded-full bg-slate-200 overflow-hidden">
+                    {/* safety zone */}
+                    <div
+                      className="absolute left-0 top-0 h-full bg-emerald-400 rounded-full"
+                      style={{ width: `${Math.min(100, sc.daysUntilStockout > 0 ? (sc.reorderInDays / sc.daysUntilStockout) * 100 : 0)}%` }}
+                    />
+                    {/* lead time zone */}
+                    <div
+                      className="absolute top-0 h-full bg-amber-400"
+                      style={{
+                        left: `${Math.min(100, sc.daysUntilStockout > 0 ? (sc.reorderInDays / sc.daysUntilStockout) * 100 : 0)}%`,
+                        width: `${Math.min(100, sc.daysUntilStockout > 0 ? (sc.totalLeadTime / sc.daysUntilStockout) * 100 : 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex text-[10px] gap-3 mt-1.5">
+                    <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-400" />Safe window</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400" />Lead time in transit</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Plan comparison */}
@@ -349,10 +483,13 @@ export default function HomePage() {
             <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
               <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
                 <Users className="h-4 w-4 text-brand-600" />
-                Volume Funnel (to deliver {fmtInt(result.deliveredOrders)} units)
+                Volume Funnel
+                {inputs.useLeadsMode
+                  ? ` (from ${fmtInt(inputs.leadsInput)} leads)`
+                  : ` (to deliver ${fmtInt(result.deliveredOrders)} units)`}
               </h3>
               <div className="space-y-1">
-                <FunnelRow label="Leads needed" value={fmtInt(result.leadsNeeded)} pct={100} />
+                <FunnelRow label="Leads" value={fmtInt(result.leadsNeeded)} pct={100} />
                 <FunnelRow label="Confirmed orders" value={fmtInt(result.confirmedOrders)}
                   pct={(result.confirmedOrders / result.leadsNeeded) * 100} />
                 <FunnelRow label="Shipped" value={fmtInt(result.shippedOrders)}
@@ -366,18 +503,22 @@ export default function HomePage() {
                     pct={(result.upsellOrders / result.leadsNeeded) * 100} />
                 )}
               </div>
+              {inputs.useLeadsMode && (
+                <p className="mt-3 rounded-lg bg-brand-50 border border-brand-100 px-3 py-2 text-xs text-brand-700">
+                  With <strong>{fmtInt(inputs.leadsInput)} leads</strong> at your rates → <strong>{fmtInt(result.deliveredOrders)} delivered units</strong> • Revenue: <strong>{fmtUSD(result.totalGross)}</strong>
+                </p>
+              )}
             </div>
 
-            {/* P&L breakdown */}
+            {/* P&L */}
             <div className="grid gap-4 lg:grid-cols-2">
-              {/* Revenue */}
               <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
                 <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
                   <DollarSign className="h-4 w-4 text-emerald-600" />
                   Revenue
                 </h3>
                 <div className="divide-y divide-slate-100">
-                  <Row label="Gross revenue" value={fmtUSD(result.grossRevenue)} />
+                  <Row label={`Gross revenue (${fmtUSD(result.effectivePrice)}/unit)`} value={fmtUSD(result.grossRevenue)} />
                   <Row label="Upsell revenue" value={fmtUSD(result.upsellRevenue)} />
                   <Row label="Total gross" value={fmtUSD(result.totalGross)} strong />
                   <Row label="− Refunds" value={fmtUSD(result.refunds)} tone="warn" />
@@ -392,7 +533,6 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* Direct costs */}
               <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
                 <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
                   <Truck className="h-4 w-4 text-rose-600" />
@@ -507,6 +647,16 @@ function CCStat({ label, value }: { label: string; value: number }) {
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
       <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
       <div className="mt-1 text-base font-semibold text-slate-900 tabular-nums">${fmt(value, 2)}</div>
+    </div>
+  );
+}
+
+function ScStat({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div className="rounded-lg bg-white/70 border border-white/80 p-3">
+      <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-sm font-bold text-slate-800">{value}</div>
+      <div className="text-[10px] text-slate-400 mt-0.5">{sub}</div>
     </div>
   );
 }
