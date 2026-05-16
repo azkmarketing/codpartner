@@ -22,8 +22,8 @@ export default function HomePage() {
     productType: "Cosmetic",
     useCallCenter: true,
 
-    stockQuantity: 500,
-    productCost: 7.5,
+    stockQuantity: 100,
+    productCost: 16.5,
     sellingPrice: 95.72,
     weightKg: 0.55,
 
@@ -32,11 +32,11 @@ export default function HomePage() {
     leadsInput: 1000,
     aov: 0,
 
-    leadCost: 12,
+    leadCost: 14,
     confirmationRate: 65,
     deliveryRate: 60,
     refundRate: 0,
-    upsellRate: 0,
+    upsellRate: 2,
 
     influencerCount: 0,
     influencerCostPerVideo: 100,
