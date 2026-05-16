@@ -18,7 +18,7 @@ const fmtInt = (n: number) => Math.round(n).toLocaleString("en-US");
 export default function HomePage() {
   const [inputs, setInputs] = useState<CalculatorInputs>({
     plan: "free",
-    country: "KSA",
+    country: "Qatar",
     productType: "Cosmetic",
     useCallCenter: true,
 
